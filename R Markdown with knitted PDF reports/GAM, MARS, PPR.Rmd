@@ -1,0 +1,543 @@
+---
+output: 
+  pdf_document:
+    keep_tex: true
+    fig_caption: true
+    latex_engine: xelatex
+    number_sections: true
+    toc: true
+    toc_depth: 4
+title: "Project VI: GAM, MARS, PPR"
+author: 
+- Appiah Prince^[pappiah@miners.utep.edu]
+- University of Texas at El Paso (UTEP) 
+date: "`r format(Sys.time(), '%B %d, %Y')`"
+geometry: margin=1in
+fontsize: 12pt
+spacing: single
+header-includes:
+- \usepackage{amsmath}
+- \usepackage{amssymb}
+- \usepackage{amsfonts}
+- \usepackage{amsthm}
+- \usepackage{fancyhdr}
+- \pagestyle{fancy}
+- \fancyhf{}
+- \rhead{STAT 5494-- Statistical Machine Learning}
+- \lhead{Parametric/Nonparametric Nonlinear Regression}
+- \cfoot{\thepage}
+- \usepackage{algorithm}
+- \usepackage[noend]{algpseudocode}
+
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+# Data Preparation
+
+## Bring in the data
+```{r}
+hr <- read.csv("HR_comma_sep.csv")
+head(hr)
+dim(hr)
+str(hr)
+```
+
+
+The data set contains 14,999 observations and 10 variables. The binary
+target left indicates whether a employee left the company. There are 5 continuous variables and 5 categorical/ordinal variables.
+
+
+## Change the categorical variable Salary to ordinal
+```{r}
+hr$salary <- factor(hr$salary, levels = c("low", "medium", "high"), 
+                    ordered = TRUE)
+str(hr$salary)
+```
+
+
+## Change the column name for variable sales to department
+```{r}
+colnames(hr)[9] <- "department"
+names(hr)
+```
+
+## Make the target variable left categorical using the factor function
+```{r}
+hr$left <- factor(hr$left)
+str(hr$left)
+```
+
+## Checking for missing values
+```{r}
+library(questionr)
+freq.na(hr)
+```
+
+
+There are no missing values in the data.
+
+
+\newpage
+# Exploratory Data Analysis (EDA)
+
+## Scatter plot of satisfaction_level versus number_project
+```{r}
+library(ggplot2)
+ggplot(hr,  aes(x = number_project, y = satisfaction_level)) +
+  geom_point(aes(colour = left)) +
+  ggtitle("Scatter plot of satisfaction level vs number project")
+
+```
+
+
+- From the scatterplot we see that employees who had 7 number of project 
+were not satisfied so they left the company.
+
+- Majority of employees with 2, 3 and 6 number of projects did not leave the company.
+
+- There is almost equal number of proportion of employees who left and stayed with 4 and 5 number of projects.
+
+
+
+## Computing and Visualizing correltion matrix among the variables
+
+```{r}
+# Correlation matrix
+library(GoodmanKruskal)
+data <- GKtauDataframe(hr)
+data
+```
+
+```{r}
+# Visualization of the correlation matrix
+plot(data, corColors = "magenta")
+```
+
+
+- Each of the continuous variables(satisfaction_level,last_evaluation,number_project,
+average_montly_hours,time_spend_company) has a larger association with 
+the target variable left while the categorical variables have a very small association(approximately no association) with the target variable left.
+
+- We also observed that there is approximately no association between the categorical variables and the continuous variables.
+
+
+## Bar Plot of the target variable left
+```{r, warning=FALSE}
+library(dplyr)
+hr %>%
+count(left) %>%
+mutate(pct = prop.table(n)) %>%
+ggplot(aes(x = left, y = pct, label = scales::percent(pct), fill=left)) +
+geom_col(position = 'dodge') +
+geom_text(position = position_dodge(width = .9),
+vjust = -0.5,
+size = 3) +
+scale_y_continuous(labels = scales::percent) +
+ggtitle("Proportion of employees that stayed(0) or left(1) the company")
+theme(legend.position = "none")
+```
+
+
+
+There is 76% of the employees that did not leave the company while 24% of the employees left the company.
+
+## Proportion of left with respect to categorical variables 
+
+```{r, warning=FALSE}
+library(gridExtra)
+tab <- table(hr$Work_accident, hr$left)
+df <- data.frame(tab)
+colnames(df) <- c("WorkAccident", "Left", "Frequency")
+
+pt1 <- ggplot(df, aes(x = WorkAccident, y = Frequency, fill = Left)) +
+  geom_bar(stat = "identity", position = "dodge")
+
+tab1 <- table(hr$promotion_last_5years, hr$left)
+df1 <- data.frame(tab1)
+colnames(df1) <- c("promotion_last_5years", "Left", "Frequency")
+
+pt2 <- ggplot(df1, aes(x = promotion_last_5years, y = Frequency, fill = Left)) +
+  geom_bar(stat = "identity", position = "dodge")
+
+tab2 <- table(hr$department, hr$left)
+df2 <- data.frame(tab2)
+colnames(df2) <- c("Department", "Left", "Frequency")
+
+pt3 <- ggplot(df2, aes(x = Department, y = Frequency, fill = Left)) +
+  geom_bar(stat = "identity", position = "dodge")
+
+tab3 <- table(hr$salary, hr$left)
+df3 <- data.frame(tab3)
+colnames(df3) <- c("Salary", "Left", "Frequency")
+
+pt4 <- ggplot(df3, aes(x = Salary, y = Frequency, fill = Left)) +
+  geom_bar(stat = "identity", position = "dodge")
+
+grid.arrange(pt1, pt2, pt3, pt4, nrow = 2)
+```
+
+
+Considering the categorical variables, we see that the percentage of employees who did not leave the company is greater(more than 50%) of the percentage of employees who left the company.
+
+
+## Proportion of left with respect to continuous variables 
+```{r}
+ct1 <- ggplot(hr, aes(x =left, y = satisfaction_level, fill = left)) +
+  geom_boxplot()
+
+ct2 <- ggplot(hr, aes(x =left, y = last_evaluation, fill = left)) +
+  geom_boxplot()
+
+ct3 <- ggplot(hr, aes(x =left, y = number_project, fill = left)) +
+  geom_boxplot()
+
+ct4 <- ggplot(hr, aes(x =left, y = average_montly_hours, fill = left)) +
+  geom_boxplot()
+
+ct5 <- ggplot(hr, aes(x =left, y = time_spend_company, fill = left)) +
+  geom_boxplot()
+
+grid.arrange(ct1,ct2,ct3,ct4,ct5, nrow = 3)
+```
+
+
+- Considering the satisfaction_level, we see from the plot that the median of employees who did not leave the company is greater than those who left.
+
+- Considering the last_evaluation, we see from the plot that the median of employees who did not leave the company is greater than those who left. The difference between these two medians is not much, which to some extent explains why some people left the company.
+
+- Finally, considering number_project,average_montly_hours and time_spend_company, we see that the difference in median between those who left and those who stayed is not large. Thus, this also explain why some of the employees left the company.
+
+
+\newpage
+# Data Partitioning
+```{r}
+set.seed(126)
+sample_hr <- sample(nrow(hr), (2.0/3.0)*nrow(hr), replace = FALSE) 
+train_set <- hr[sample_hr, ] # training set
+test_set <- hr[-sample_hr, ] #test set
+dim(train_set)
+dim(test_set)
+```
+
+
+We have 9999 observations with 10 variables in the train set while we have
+5000 observations with 10 variables in the test data.
+
+
+# Logistic Regression
+```{r}
+set.seed(123)
+library(ncvreg); 
+y <- train_set$left
+formula0 <- left ~.
+X <- model.matrix(as.formula(formula0), data=train_set)
+cvfit.lasso <- cv.ncvreg(X=X,y=y, nfolds=5, family="binomial",
+            penalty="lasso",lambda.min=.0001, nlambda=500,eps=.01,
+            max.iter=1000) 
+plot(cvfit.lasso)
+```
+
+
+Selecting the best tuning parameter
+```{r}
+cvfit.lasso$lambda.min
+```
+
+
+Important Predictor Variables
+```{r}
+result.lasso <- cvfit.lasso$fit
+beta.hat <- as.vector(result.lasso$beta[-1, cvfit.lasso$min])
+cutoff <- 0
+terms <- colnames(X)[abs(beta.hat) > cutoff]
+terms  
+```
+
+We see that all the variables are important.
+
+
+Final Best Model Fit
+```{r}
+formula01 <- left ~ satisfaction_level + last_evaluation + number_project +                   average_montly_hours + time_spend_company + Work_accident +                       promotion_last_5years + department + salary 
+
+formula.lasso <- as.formula(formula01)
+fit.lasso <- glm(formula.lasso, data = train_set, family="binomial")
+smy <- summary(fit.lasso)
+smy$coefficients
+smy$aic
+```
+
+
+- The AIC = 8530.854 is larger which indicates poor performance of our model.
+
+- At significance level of 0.05 we see that all the p values are less than
+0.05 indicating that all the predictors are statistically  significant.
+
+
+
+Obtaining the associated odds ratio and the 95% confidence intervals for the odds ratio
+```{r}
+exp(cbind('Odd ratio' = coef(fit.lasso), confint(fit.lasso)))
+```
+
+
+- The estimated odds for satisfaction_level is exp(-4.183581780) = 0.01524381. For each increase in 1 unit of satisfaction_level,the estimated odds of an employee to leave the company decreases by a factor of 0.01524381 holding the other predictors constants.
+
+- The estimated odds for last_evaluation is exp(0.721463217) = 2.057441. For each increase in 1 unit of last_evaluation,the estimated odds of an employee to leave the company decreases by a factor of 2.057441 holding the other predictors constants.
+
+- The estimated odds for time_spend_company is exp(0.264703794) = 1.303045. For each increase in 1 unit of time_spend_company,the estimated odds of an employee to leave the company decreases by a factor of 1.303045. holding the other predictors constants.
+
+
+
+
+Applying the final logistic model to the test data 
+```{r}
+yobs <- as.numeric(as.character(test_set$left))
+phat <- predict(fit.lasso, newdata=test_set, type="response")
+cutoff <- 0.5
+yhat <- (phat <= cutoff) + 0
+table(yobs, yhat)
+```
+
+
+ROC CURVE AND AUC
+```{r}
+suppressPackageStartupMessages(library(verification))
+a.ROC <- roc.area(obs=yobs, pred=phat)$A
+print(a.ROC) 
+
+suppressPackageStartupMessages(library(cvAUC))
+AUC <- ci.cvAUC(predictions=phat, labels=yobs, folds=1:NROW(test_set), confidence=0.95)
+auc.ci <- round(AUC$ci, digits=3)
+
+suppressPackageStartupMessages(library(verification))
+mod.glm <- verify(obs=yobs, pred=phat) 
+roc.plot(mod.glm, plot.thres = NULL)
+text(x=0.7, y=0.2, paste("Area under ROC =", round(AUC$cvAUC, digits=3), 
+	"with 95% CI (", auc.ci[1], ",", auc.ci[2], ").",
+	sep=" "), col="blue", cex=1.2)
+log_reg_lasso <- round(AUC$cvAUC, digits=4)
+```
+
+
+The area under the curve according to regularized logistic regression 
+using lasso as penalty function is 0.814.
+
+
+\newpage
+# Random Forest
+```{r, warning=FALSE}
+library(randomForest)
+fit.rf <- randomForest(left ~., data=train_set,importance=TRUE, proximity=TRUE, ntree=500)
+fit.rf; 
+rf_yhat <- predict(fit.rf, newdata=test_set, type="prob")[, 2]
+```
+
+```{r}
+# VARIABLE IMPORTANCE RANKING
+round(importance(fit.rf), 2)
+varImpPlot(fit.rf, main="Variable Importance Ranking")
+```
+
+
+Using mean decrease accuracy, we see that the first three important variables are satisfaction_level,last_evaluation and number_project respectively.
+
+
+
+```{r}
+# PARTIAL DEPENDENCE PLOT
+par(mfrow=c(2,2))
+partialPlot(fit.rf, pred.data=train_set, x.var=satisfaction_level, rug=TRUE)
+partialPlot(fit.rf, pred.data=train_set, x.var=number_project, rug=TRUE)
+partialPlot(fit.rf, pred.data=train_set, x.var=average_montly_hours, rug=TRUE)
+partialPlot(fit.rf, pred.data=train_set, x.var=last_evaluation, rug=TRUE)
+
+```
+
+
+Clearly, we see that the plots show non-linearity. The strong non-linearity shown on these plots show the inadequacy of linear logistic regression model.
+
+
+
+```{r}
+AUC.RF <- roc.area(obs=yobs, pred=rf_yhat)$A
+mod.rf <- verify(obs=yobs, pred=rf_yhat)
+roc.plot(mod.rf, plot.thres = NULL, col="red", main="ROC Curve from Random Forest")
+text(x=0.7, y=0.2, paste("Area under ROC =", round(AUC.RF, digits=4), 
+	sep=" "), col="cadetblue", cex=1.2)
+```
+
+
+The area under the curve according to random forest model is 0.9905.
+
+
+\newpage
+# Generalized Additive Model(GAM)
+```{r, warning=FALSE}
+library(gam)
+fit.gam <- gam( left ~ s(satisfaction_level,6) + s(number_project,6) + s(time_spend_company,6) + s(last_evaluation,6) + s(average_montly_hours,6) + department + Work_accident + promotion_last_5years 
++ salary , family = binomial, 
+	data=train_set, trace=TRUE, 
+	control = gam.control(epsilon=1e-04, bf.epsilon = 1e-04, maxit=50, bf.maxit = 50))
+
+smy1 <- summary(fit.gam)
+smy1$parametric.anova
+smy1$anova
+
+# Prediction on the test set
+yhat.gam <- predict(fit.gam, newdata=test_set, type="response", se.fit=FALSE)
+```
+
+
+- We see that the predictors satisfaction_level,number_project,
+time_spend_company,last_evaluation and average_montly_hours are statistically significant while department, work_accident,promotion_last_5years and salary are not statistically significant under Anova for Nonparametric effects.
+
+- Under Anova for Parametric Effects, number_project,department and promotion_last_5years are not statistically significant.
+
+ 
+\newpage
+Variable/Model Selection
+```{r}
+fit.step <- step.Gam(fit.gam, scope=list("satisfaction_level"=~1 +satisfaction_level + lo(satisfaction_level),
+				"last_evaluation"=~1+ last_evaluation + lo(last_evaluation)+ s(last_evaluation , 2), 
+				"number_project"=~1 + number_project + s(number_project, 2) + s(number_project, 4),
+					"average_montly_hours"=~1 + average_montly_hours + s(average_montly_hours, 2) + s(average_montly_hours, 4),
+	"time_spend_company"=~1 + time_spend_company + s(time_spend_company, 2) + s(time_spend_company, 4)),
+			scale =2, steps=1000, parallel=TRUE, direction="both")
+summary(fit.step)
+```
+
+
+Plotting the (nonlinear) functional forms for continuous predictors
+```{r}
+par(mfrow=c(2,3))
+plot(fit.step, se =TRUE)
+```
+
+
+- Each smoothing parameter was determined adaptively in the backfitting algorithm. The smoothing splines were used and optimization of the tuning parameter is automatically done through minimum GCV.
+
+- The Stepwise selection with AIC was used to do the variable
+selection.
+
+- The strong non-linearity shown on these plots show the inadequacy of (linear) logistic regression model. 
+
+
+
+```{r}
+suppressPackageStartupMessages(library(verification))
+yhat.gam <- predict(fit.step, newdata=test_set, type="response", se.fit=FALSE)
+AUC.GAM <- roc.area(obs=yobs, pred=yhat.gam)$A
+mod.gam <- verify(obs=yobs, pred=yhat.gam)
+roc.plot(mod.gam, plot.thres = NULL, col="red", main="ROC Curve from GAM")
+text(x=0.7, y=0.2, paste("Area under ROC =", round(AUC.GAM, digits=4), 
+	sep=" "), col="cadetblue", cex=1.2)
+
+```
+
+
+The area under the curve according to GAM model is 0.973.
+
+
+\newpage
+# Multivariate Adaptive Regression Splines
+```{r, warning=FALSE}
+library("earth")
+library(ggplot2)   # plotting
+library(caret)     # automating the tuning process
+library(vip)       # variable importance
+library(pdp)       # variable relationships
+fit.mars <- earth(left ~ .,  data = train_set, degree=3,
+	glm=list(family=binomial(link = "logit")))
+summary(fit.mars) %>% .$coefficients %>% head(10)
+```
+
+
+```{r}
+# VARIABLE IMPORTANCE PLOT
+vip(fit.mars, num_features = 10) + ggtitle("GCV")
+```
+
+
+The first three variable of importance are Satisfaction_level, number_project and time_spend_company respectively.
+
+
+
+```{r}
+# PARTIAL DEPENDENCE PLOT
+p1 <- partial(fit.mars, pred.var = "satisfaction_level", grid.resolution = 10)%>%autoplot()
+p2 <- partial(fit.mars, pred.var = "last_evaluation", grid.resolution = 10)%>%autoplot()
+p3 <- partial(fit.mars, pred.var = "number_project", grid.resolution = 10)%>%autoplot()
+p4 <- partial(fit.mars, pred.var = "average_montly_hours", grid.resolution = 10)%>%autoplot()
+p5 <- partial(fit.mars, pred.var = "time_spend_company", grid.resolution = 10)%>%autoplot()
+grid.arrange(p1, p2, p3, p4, p5, nrow = 3)
+```
+
+
+
+```{r}
+# PREDICTION
+library(cvAUC)
+yhat.mars <- predict(fit.mars, newdata=test_set, type="response")
+AUC.MARS <- ci.cvAUC(predictions=yhat.mars, labels=yobs, folds=1:length(yhat.mars), confidence=0.95); AUC.MARS 
+auc.ci <- round(AUC.MARS$ci, digits=4)
+library(verification)
+mod.mars <- verify(obs=yobs, pred=yhat.mars)
+roc.plot(mod.mars, plot.thres = NULL, main="ROC Curve from MARS")
+text(x=0.6, y=0.2, paste("Area under ROC =", round(AUC.MARS$cvAUC, digits=4),
+	sep=" "), col="cadetblue", cex=1.2)
+
+```
+
+
+The area under the curve according to MARS is 0.9751
+
+
+# Project Pursuit Regression
+```{r}
+train_set$left <- as.numeric(as.character(train_set$left))
+fit.ppr <- ppr(left ~ ., sm.method = "supsmu", 
+    data = train_set, nterms = 2, max.terms = 10, bass=3)
+summary(fit.ppr)
+fit1.ppr <- update(fit.ppr, bass=5, nterms=4)
+summary(fit1.ppr)
+```
+
+
+```{r}
+# PREDICTION
+yhat.ppr <- predict(fit1.ppr, newdata=test_set)
+yhat.ppr <- scale(yhat.ppr,center = min(yhat.ppr),scale = max(yhat.ppr)-min(yhat.ppr))
+
+# AUC AND ROC CURVE
+AUC.PPR <- ci.cvAUC(predictions=yhat.ppr, labels=yobs, folds=1:length(yhat.ppr), confidence=0.95); AUC.PPR 
+auc.ci <- round(AUC.PPR$ci, digits=4)
+library(verification)
+mod.ppr <- verify(obs=yobs, pred=yhat.ppr)
+roc.plot(mod.ppr, plot.thres = NULL,  main="ROC Curve from PPR")
+text(x=0.6, y=0.2, paste("Area under ROC =", round(AUC.PPR$cvAUC, digits=4), 
+	sep=" "), col="cadetblue", cex=1.2)
+
+```
+
+
+The area under the curve according to PPR model is 0.9649
+
+\newpage
+# Results and Comparison
+```{r}
+Measure <- c(log_reg_lasso,round(AUC.RF, digits=4),round(AUC.GAM, digits=4),round(AUC.MARS$cvAUC, digits=4),round(AUC.PPR$cvAUC, digits=4))
+Measures <- data.frame("Method"= c("LASSO","Random Forest","GAM","MARS","PPR"), "AUC"= Measure); Measures
+knitr::kable(Measures, align = "lc")
+```
+
+
+By using AUC as a criteria, we see that random forest model outperforms all the  other models since it has the highest AUC while logistic regression model perform the least.
+
+From the results of the five models, we see that the important predictor variables that help best predict the employee retention are satisfaction_level,last_evaluation,number_project and time_spend_company. Therefore, the company has to pay more attention to these variables and find ways to improve in these areas to help maximize the rate at which employees stay in the company.
+
+We also observed from the five models that they seem not to be good for categorical variables.
+

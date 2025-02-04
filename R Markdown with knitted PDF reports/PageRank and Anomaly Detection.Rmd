@@ -1,0 +1,369 @@
+---
+output: 
+  pdf_document:
+    keep_tex: true
+    fig_caption: true
+    latex_engine: pdflatex
+    number_sections: true
+    toc: true
+    toc_depth: 4
+title: "Project IV: PageRank and Anomaly Detection"
+author: 
+- Appiah Prince^[pappiah@miners.utep.edu]
+- University of Texas at El Paso (UTEP) 
+date: "`r format(Sys.time(), '%B %d, %Y')`"
+geometry: margin=1in
+fontsize: 12pt
+spacing: single
+header-includes:
+- \usepackage{amsmath}
+- \usepackage{amssymb}
+- \usepackage{amsfonts}
+- \usepackage{amsthm}
+- \usepackage{fancyhdr}
+- \pagestyle{fancy}
+- \fancyhf{}
+- \rhead{STAT 5494-- Statistical Machine Learning}
+- \lhead{PageRank and Anomaly Detection}
+- \cfoot{\thepage}
+- \usepackage{algorithm}
+- \usepackage[noend]{algpseudocode}
+
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+# PageRank
+
+## Obtain the link matrix L and input it into R
+
+```{r}
+L <- matrix(c(0, 1, 0, 0, 0, 0, 0,
+0, 0, 0, 1, 1, 0, 0,
+1, 0, 0, 0, 0, 1, 0, 
+1, 0, 1, 0, 1, 1, 0, 
+0, 0, 0, 1, 0, 0, 0, 
+0, 0, 0, 0, 0, 0, 0, 
+0, 0, 0, 0, 1, 1, 0), nrow = 7, ncol = 7, byrow = F) 
+colnames(L)<-c("A","B","C","D","E","F","G")
+row.names(L)<-c("A","B","C","D","E","F","G")
+
+L
+```
+
+
+Comments
+
+- L is a 7 x 7 matrix
+
+- Webpage G is a dead end since there is no outlink from it.
+
+
+## Reproduce the graph similar to Figure 1 to check if you have got the right link matrix L.
+```{r}
+set.seed(12333333)
+library(igraph)
+graph <- graph_from_adjacency_matrix(L)   
+par(mfrow=c(1,1), mar=rep(4,4))
+plot(graph, vertex.color=c(1,2,3,4,5,6,7))
+```
+
+
+
+Comment
+
+- The plot is the same as the given plot. Hence, our link matrix L is correct.
+
+
+## Compute the PageRank score for each webpage. Provide a barplot of the PageRank score. Which pages come to the top-3 list? Discuss the results.
+
+```{r}
+pagerank <- function(G, method='eigen',d=.85,niter=100){
+  cvec <- apply(G,2,sum) 
+  cvec[cvec==0] <- 1 
+  n <- nrow(G)
+  delta <- (1-d)/n
+  A <- matrix(delta,nrow(G),ncol(G))
+  for (i in 1:n)   A[i,] <- A[i,] + d*G[i,]/cvec
+  if (method=='power'){
+    x <- rep(1,n)
+    for (i in 1:niter) x <- A%*%x
+  } else {
+    x <- Re(eigen(A)$vector[,1])
+  }
+  x/sum(x)
+}
+```
+
+
+
+```{r}
+#PageRank score for each webpage
+L0 <- t(L)
+pg <- pagerank(L0, method='power')
+pg <- data.frame("WebPage"= c("A","B","C","D","E","F","G"), "PageRank"= pg)
+pg
+```
+
+
+```{r}
+#Barplot of the PageRank score.
+barplot(pg$PageRank, names= pg$WebPage, col="lavender", xlab="Webpage", 
+        ylab="PageRank Score", main="PageRank score for each webpage")
+```
+
+
+
+Comment
+
+- Webpage D has the highest score which indicates that most people visit it.
+
+- Webpage F has the lowest score.
+
+
+
+
+
+
+```{r}
+#The top-3 list of the PageRank score
+top3 <- pg[ order(pg$PageRank, decreasing = TRUE), ]
+head(top3, 3)
+```
+
+
+Comment
+
+- The top-3 list of the pagerank score in descending order are *D*,*A*,*B*.
+
+
+
+# Anomaly Detection
+
+We consider the HTP (high tech part) data available from R Package ICSOutlier. This data set contains the results of p = 88 numerical tests for n = 902 high-tech parts. Based on these results the producer considered all parts functional and all of them were sold. However two parts, 581 and 619, showed defects in use and were returned to the manufacturer. These two observations can thus be considered as outliers and the objective is to detect them by re-examining the test data.
+
+## Bring in the data with the following R code
+
+```{r}
+#install.packages("ICSOutlier")
+         library("ICSOutlier")
+         data(HTP)
+         dat <- HTP; dim(dat); #head(dat)
+         outliers.true <- c(581, 619)
+```
+
+
+Comment
+
+- The dimension of the data is 902 observations with 88 variables.
+
+
+## Part b
+
+### Obtain MCD estimates
+```{r}
+# Obtain MCD estimates with a breakdown point of 20%
+library(robustbase)
+fit.robust <- covMcd(dat, cor = FALSE, alpha = 0.80)
+```
+
+
+Comment
+
+- A breakdown of 20% has been used.
+
+### Robust estimates of the mean vector 
+```{r}
+# Robust estimates of the mean vector for 5 variables
+Mean_vector <- fit.robust$center
+Mean_vector[1:5]
+```
+
+### Robust estimates of the VCOV matrix
+```{r}
+Cov_matrix <- fit.robust$cov
+Cov_matrix[1:5, 1:5]
+```
+
+### Robust (squared) Mahalanobis distance
+```{r}
+Mahalanobis_Dist <- mahalanobis(dat,Mean_vector,Cov_matrix)
+head(Mahalanobis_Dist)
+```
+
+
+```{r}
+# Cut-off based on the chi-square distribution
+cutoff.chi.sq <- qchisq(0.975, df = ncol(dat))
+cutoff.chi.sq
+```
+
+
+Comment
+
+- I used a threshold $p = 0.975$ for the the chi-square distribution.
+
+
+
+```{r}
+# Another Cut-off Suggested by Green and Martin (2014)
+library("CerioliOutlierDetection")
+n <- nrow(dat)
+p <- ncol(dat)
+cutoff.GM <- hr05CutoffMvnormal(n.obs = n, p.dim=p, mcd.alpha = 0.75,
+	signif.alpha = 0.025, method = "GM14",
+	use.consistency.correction = TRUE)$cutoff.asy
+cutoff.GM 
+```
+
+
+Comment
+
+- I used a threshold of $\alpha = 0.025$ or 0.025 level of significance.
+
+### Plot the results
+```{r}
+colPoints <- ifelse(Mahalanobis_Dist >= min(c(cutoff.chi.sq, cutoff.GM)), 1,
+                    grey(0.5))
+pchPoints <- ifelse(Mahalanobis_Dist >= min(c(cutoff.chi.sq, cutoff.GM)), 16, 4)
+
+plot(seq_along(Mahalanobis_Dist), Mahalanobis_Dist, pch = pchPoints, 
+     col = colPoints,ylim=c(0, max(Mahalanobis_Dist, cutoff.chi.sq, cutoff.GM) + 2),          cex.axis = 0.7, cex.lab = 0.7,ylab = expression(Mahalanobis_Dist**2), 
+     xlab = "Observation Number")
+
+abline(h = c(cutoff.chi.sq, cutoff.GM), lty = c("dashed", "dotted"), col=c("blue", "red"))
+legend("topleft", lty = c("dashed", "dotted"), cex = 0.5, ncol = 1, bty = "n",
+legend = c(expression(paste(chi[p]**2, " cut-off")), "GM cut-off"), col=c("blue", "red"))
+text(619, Mahalanobis_Dist[619], labels=619, col=619)
+text(581, Mahalanobis_Dist[581], labels=581, col=581)
+```
+
+
+
+Comment
+
+- From the graph, we see that the observations *581* and *619* are indeed 
+outliers. 
+
+- Observation *619* may be in the top list of potential outliers while *581* may not.
+
+
+
+
+
+
+## Part c
+
+### Isolation forest (iForest)
+
+```{r}
+# Since I use MACBOOK I decided to try the R PACKAGE IsolationForest which you
+# stated in your R code in class.
+
+library(IsolationForest)
+
+iso_tree <- IsolationTrees(dat, rFactor=0, ntree = 80)
+anomaly_score <- AnomalyScore(dat,iso_tree)
+Ascore <- anomaly_score$outF
+
+# PLOT OF THE SCORES
+par(mfrow=c(1,1), mar=rep(4,4))
+plot(x=1:length(Ascore), Ascore, type="p", pch=1, 
+	main="Anomaly Score via iForest",
+    	xlab="id", ylab="score", cex=Ascore*4, col="coral1")
+add.seg <- function(x) segments(x0=x[1], y0=0, x1=x[1], y1=x[2], 
+	lty=1, lwd=1.5, col="navyblue")
+apply(data.frame(id=1:length(Ascore), score=Ascore), 1, FUN=add.seg)
+eps <- 0.99
+id.outliers <- which(Ascore > quantile(Ascore, eps))
+text(id.outliers, Ascore[id.outliers]+0.003, label=id.outliers, 
+	col="deepskyblue1", cex=0.7) 
+
+```
+
+
+Comment
+
+- We used the parameters rFactor=0, ntree = 80 for the IsolationForest.
+
+- We observe that the observations *581* and *619* are deemed anomalies.
+
+
+
+###  Local Outlier Factor(LOF)
+```{r}
+library(Rlof)
+outlier.scores <- lof(dat, k=6)
+which(outlier.scores > quantile(outlier.scores, 0.95))
+
+# PLOT OF THE LOF SCORES
+score <- scale(outlier.scores, center = min(outlier.scores), 
+	scale = max(outlier.scores)-min(outlier.scores)) 
+par(mfrow=c(1,1), mar=rep(4,4))
+plot(x=1:length(score), score, type="p", pch=1, 
+	main="Local Outlier Factor (LOF)",
+    	xlab="id", ylab="LOF", cex=score*5, col="coral2")
+add.seg <- function(x) segments(x0=x[1], y0=0, x1=x[1], y1=x[2], 
+	lty=1, lwd=1.5, col="cadetblue")
+apply(data.frame(id=1:length(score), score=score), 1, FUN=add.seg)
+eps <- 0.98
+id.outliers <- which(outlier.scores > quantile(outlier.scores, eps))
+text(id.outliers, score[id.outliers]+0.02, label=id.outliers, 
+	col="deepskyblue1", cex=0.7) 
+```
+
+
+Comment
+
+- We used k=6 that is, the 6th distance was used to calculate the LOFs.
+
+- We observe that the observations *581* and *619* are deemed anomalies.
+
+
+
+### Comparison of the results of the two methods
+
+```{r}
+par(mfrow=c(1,2), mar=rep(4,4))
+
+#iForest
+plot(x=1:length(Ascore), Ascore, type="p", pch=1, 
+	main="Anomaly Score via iForest",
+    	xlab="id", ylab="score", cex=Ascore*4, col="coral1")
+add.seg <- function(x) segments(x0=x[1], y0=0, x1=x[1], y1=x[2], 
+	lty=1, lwd=1.5, col="navyblue")
+apply(data.frame(id=1:length(Ascore), score=Ascore), 1, FUN=add.seg)
+eps <- 0.99
+id.outliers <- which(Ascore > quantile(Ascore, eps))
+text(id.outliers, Ascore[id.outliers]+0.003, label=id.outliers, 
+	col="deepskyblue1", cex=0.7) 
+
+
+#LOF
+plot(x=1:length(score), score, type="p", pch=1, 
+	main="Local Outlier Factor (LOF)",
+    	xlab="id", ylab="LOF", cex=score*5, col="coral2")
+add.seg <- function(x) segments(x0=x[1], y0=0, x1=x[1], y1=x[2], 
+	lty=1, lwd=1.5, col="cadetblue")
+apply(data.frame(id=1:length(score), score=score), 1, FUN=add.seg)
+eps <- 0.98
+id.outliers <- which(outlier.scores > quantile(outlier.scores, eps))
+text(id.outliers, score[id.outliers]+0.02, label=id.outliers, 
+	col="deepskyblue1", cex=0.7) 
+
+```
+
+
+
+
+Comment
+
+- First, we observe that both plots indicate that the two methods(iForest and LOF) deemed the observations *581* and *619* as anomalies or outliers.
+
+- Secondly, we see from the plot of the LOF that it is obvious that the observations *581* and *619* are separated from the potential outliers. However, this is not the case for the iForest.
+
+- Hence, we conclude that the Local Outlier Factor (LOF) works better in this problem than the iForest.
+

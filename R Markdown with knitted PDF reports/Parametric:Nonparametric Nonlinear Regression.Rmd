@@ -1,0 +1,612 @@
+
+---
+output: 
+  pdf_document:
+    keep_tex: true
+    fig_caption: true
+    latex_engine: xelatex
+    number_sections: true
+    toc: true
+    toc_depth: 4
+title: "Project V: Parametric/Nonparametric Nonlinear Regression"
+author: 
+- Appiah Prince^[pappiah@miners.utep.edu]
+- University of Texas at El Paso (UTEP) 
+date: "`r format(Sys.time(), '%B %d, %Y')`"
+geometry: margin=1in
+fontsize: 12pt
+spacing: single
+header-includes:
+- \usepackage{amsmath}
+- \usepackage{amssymb}
+- \usepackage{amsfonts}
+- \usepackage{amsthm}
+- \usepackage{fancyhdr}
+- \pagestyle{fancy}
+- \fancyhf{}
+- \rhead{STAT 5494-- Statistical Machine Learning}
+- \lhead{Parametric/Nonparametric Nonlinear Regression}
+- \cfoot{\thepage}
+- \usepackage{algorithm}
+- \usepackage[noend]{algpseudocode}
+
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+We consider a data set jaws.txt, which is concerned about the association 
+between jaw bone length (y = bone) and age in deer (x = age). We are going try 
+out several parametric/nonparametric nonlinear regression models in this 
+low-dimensional (p = 1) setting.
+
+# Bring in the data and make a scatterplot of bone vs. age.
+
+```{r}
+jaw_data <- read.table(file="jaws.txt", header = TRUE)
+dim(jaw_data)
+head(jaw_data)
+```
+
+
+Scatterplot of bone vs deer
+```{r}
+library(ggplot2)
+ggplot(data = jaw_data, mapping = aes(x = age, y = bone)) +
+  geom_point()+
+  geom_smooth(method = lm) +
+  geom_smooth(method = "loess", col = "red") +
+  ggtitle("Scatterplot of bone vs deer with linear and nonlinear fits") +
+  xlab("age in deer") + ylab("jaw bone length")
+```
+
+
+Comment
+
+- Almost all the points do not lie on both the linear and non linear fits.
+Most of the points are also not near the curve and the line and they do not fit the data very well.
+
+- The associations of both the linear and non linear fits do not look linear.
+
+
+
+# Data Partitioning
+
+## Partition the data into train and test in the ratio 2:1 respectively
+```{r}
+set.seed(126)
+sample_jawdata <- sample(nrow(jaw_data), (2.0/3.0)*nrow(jaw_data), replace = FALSE) 
+train_jawdata <- jaw_data[sample_jawdata, ] # training set
+test_jawdata <- jaw_data[-sample_jawdata, ] #test set
+dim(train_jawdata)
+dim(test_jawdata)
+```
+
+
+Comment
+
+- The training set has dimension 36 rows(observations) and 2 columns(variables).
+
+- The test set has dimension 18 rows(observations) and 2 columns(variables).
+
+
+
+## Checking for range of age of the train and test data to prevent extrapolation 
+```{r}
+range_age_original <- range(jaw_data$age)
+range_age_train <- range(train_jawdata$age)
+range_age_test <- range(test_jawdata$age)
+
+range_age <- data.frame('original data'=range_age_original, 
+                        'train data' =range_age_train,
+                        'test data'=range_age_test)
+row.names(range_age) <- c("min","max")
+range_age
+```
+
+
+Comment
+
+- We see that the minimum and maximum age in original data are the same as the minimum and maximum age in the training set. 
+
+- We also observe that the range of age in the test set does not exceed that in the training set.
+
+- Hence,the problem of extrapolation when it comes to prediction is prevented.
+
+
+
+# Parametric Nonlinear Models
+
+## Fitting an asymptotic exponential model
+```{r}
+bone_jaw_model <- nls(bone ~ beta1 - beta2*exp(-beta3*age),data=train_jawdata,
+    start=list(beta1 =120, beta2 =5, beta3 = 0.3), trace=T)
+summary(bone_jaw_model)
+```
+
+
+Comment
+
+All the coefficients are statistically significant according to their p-values at 5% significant level. Also, the number of iterations to convergence is 6 with the Achieved convergence tolerance of 8.58e-06.
+
+
+## Fitting the reduced model under H0.
+```{r}
+reduced_bone_jaw_model <- nls(bone ~ beta1*(1-exp(-beta3*age)),
+            data=train_jawdata,start=list(beta1 = 120, beta3 = 0.3), trace=T)
+summary(reduced_bone_jaw_model)
+```
+
+
+Comment
+
+All the coefficients are statistically significant according to their p-values 
+at 5% significant level. Also, the number of iterations to convergence is 4 
+with the Achieved convergence tolerance of 8.394e-06.
+
+
+```{r}
+anova(bone_jaw_model, reduced_bone_jaw_model)
+```
+
+
+Comment
+
+The p-value 0.7583 is greater than 0.05 which implies that we fail to reject
+H0.
+
+
+```{r}
+AIC1 <- AIC(bone_jaw_model)
+BIC1 <- BIC(bone_jaw_model)
+AIC2 <- AIC(reduced_bone_jaw_model)
+BIC2 <- BIC(reduced_bone_jaw_model)
+
+AICS <- c(AIC1,AIC2,BIC1,BIC2)
+compare <- data.frame(Methods=c('AIC non-reduced model','AIC reduced model',
+                                'BIC non-reduced model','BIC reduced model'),
+                                'Values' =AICS )
+knitr::kable(compare, align = "lc", caption = "Comparing the two nls models 
+             with AIC and BIC ")
+```
+
+
+
+Comment
+
+Both the AIC and BIC of the reduced model are smaller than that of the 
+non-reduced models'. Thus, this result together with the result from the anova 
+function and the reduced model's parsimony confirm that the reduced model is 
+better that the non-reduced model.
+
+
+## Based on the better model, add the  fitted curve to the scatterplot.
+
+```{r}
+fitted_values <- fitted.values(reduced_bone_jaw_model)
+library(ggplot2)
+ggplot(data = train_jawdata, mapping = aes(x = age, y = bone)) +
+  geom_point()+
+  geom_line(aes(x=age, y=fitted_values), col = 'red') +
+  ggtitle("fitted curve from our best model on the scatterplot") +
+  xlab("age in deer") + ylab("jaw bone length")
+```
+
+
+Comment
+
+The fitted curve to some extent fits the data well and also few points are far 
+away from the curve.
+
+
+Apply the better model to the test set.
+```{r}
+y_hat <- predict(reduced_bone_jaw_model, newdata = test_jawdata)
+```
+
+
+Plot the observed y values in test set versus their predicted values together
+with the reference line y = x, to check if the prediction seems reasonable.
+
+```{r}
+y_test_jawdata <- test_jawdata$bone
+ggplot( mapping = aes(x =y_test_jawdata , y = y_hat)) +
+  geom_point()+
+  geom_abline(intercept = 0, slope = 1, col = 'red')+
+  ggtitle("Plot of observed y in test data vs predicted y") +
+  xlab("observed y in test data") + ylab("predicted y")
+
+```
+
+
+Comment
+
+Most of the points are far away from the reference line which indicates that the predicted values are significantly different from the observed values in the 
+test data.
+
+
+Computing the prediction mean square error (MSE)
+```{r}
+prediction_MSE <- mean((y_test_jawdata - y_hat)^2)
+prediction_MSE
+```
+The prediction mean square error (MSE) is 175.4818
+
+
+\newpage
+# Local regression methods
+
+## KNN regression model
+
+V-FOLD CV FOR SELECTING K
+```{r}
+set.seed(123)
+library("FNN")
+SSEP <- function(yobs, yhat) sum((yobs-yhat)^2) 
+
+K <- 2:15
+V <- 6
+# id.fold <- sample(1:V, size = NROW(train_jawdata), replace=T)
+SSE <- rep(0, length(K))
+for(k in 1:length(K)){
+  id.fold <- sample(rep(1:V, each=trunc(NROW(train_jawdata)/V)))
+  for(v in 1:V){
+    train1<- train_jawdata[id.fold!=v, ];
+    train2<- train_jawdata[id.fold==v, ];
+    yhat2 <- knn.reg(train=train1, y=train1$bone, test=train2, k=K[k], algorithm="kd_tree")$pred;
+    SSE[k] <- (SSE[k] + SSEP(train2$bone, yhat2))
+  }  
+}
+cbind(K, SSE)
+k.opt <- K[which.min(SSE)]
+k.opt
+```
+
+
+Comment
+
+To avoid over-fitting(that is when K=1), I choose K to range from 2 to 15 and 
+using the 6-fold CV, we see that K=2, gives the optimal K. 
+
+```{r}
+knn_reg_model <- knn.reg(train=train_jawdata, y=train_jawdata$bone,
+                         k=k.opt, algorithm="kd_tree")
+summary(knn_reg_model)
+#names(knn_reg_model)
+```
+
+Plot the fitted curve together with the scatterplot of the data.
+```{r}
+library(ggplot2)
+ggplot(data = train_jawdata, mapping = aes(x = age, y = bone)) +
+  geom_point()+
+  geom_line(aes(x=age, y=knn_reg_model$pred), col = 'blue') +
+  ggtitle("fitted curve from knn_reg_model on the scatterplot") +
+  xlab("age in deer") + ylab("jaw bone length")
+```
+
+
+Comment
+
+The plot seems to fit the data very well. As wee can see the curve almost 
+wiggles through all the data points.
+
+
+```{r}
+knn_reg_model2 <- knn.reg(train=train_jawdata, test = test_jawdata, 
+                          y=train_jawdata$bone, k=k.opt, algorithm="kd_tree")
+```
+
+
+
+Plot the observed and predicted response values with reference line y = x
+```{r}
+y_test_jawdata <- test_jawdata$bone
+library(ggplot2)
+ggplot( mapping = aes(x =y_test_jawdata , y = knn_reg_model2$pred)) +
+  geom_point()+
+  geom_abline(intercept = 0, slope = 1, col = 'red')+
+  ggtitle("Plot of observed y in test data vs predicted y") +
+  xlab("observed y in test data") + ylab("predicted y")
+
+```
+
+
+Comment
+
+We observe that the points are near to the reference line which indicates that 
+the observed values in thee test data is significant not different from the 
+predicted values. This indicates a good prediction.
+
+
+Computing the prediction mean square error (MSE)
+```{r}
+prediction_MSE1 <-mean((y_test_jawdata - knn_reg_model2$pred)^2)
+prediction_MSE1
+```
+
+Comment
+
+The prediction mean square error (MSE) is 12.59012 which is small which 
+indicates the error of prediction is minimized.
+
+
+
+## Applying kernel regression to obtain a nonlinear fit.
+
+```{r}
+library(lokern)
+lofit <- lokerns(train_jawdata$age, train_jawdata$bone)
+sb <- summary(lofit$bandwidth)
+
+op <- par(fg = "gray90", tcl = -0.2, mgp = c(3,.5,0))
+plot(lofit$band, ylim=c(0,3*sb["Max."]), type="h", ann = F, axes = FALSE)
+#if(R.version$major > 1 || R.version$minor >= 3.0)
+boxplot(lofit$bandwidth, add = TRUE, at = 304, boxwex = 8,
+    col = "gray90", border="gray", pars = list(axes = FALSE))
+    axis(4, at = c(0,pretty(sb)), col.axis = "gray")
+par(op) 
+par(new=TRUE)
+
+plot(bone ~ age, data = train_jawdata, main = "Local Plug-In Bandwidth Vector")
+lines(lofit$x.out, lofit$est, col=3)
+mtext(paste("bandwidth in [", paste(format(sb[c(1,6)], dig = 3),collapse=","),
+    "];  Median b.w.=",formatC(sb["Median"])))
+```
+
+
+Comment
+
+- We used Kernel Regression Smoothing with Local Plug-in Bandwidth.
+
+- The bandwidth is within the interval [4.31,8.24] with median bandwidth of 
+6.495.
+
+
+Apply the fitted kernel regression model to the test data.
+```{r}
+perdict_kernel_reg <- predict(lofit, newdata = test_jawdata)
+```
+
+
+Plot the observed and predicted response values with reference line y = x
+```{r}
+library(ggplot2)
+ggplot( mapping = aes(x =y_test_jawdata , y = perdict_kernel_reg$y)) +
+  geom_point()+
+  geom_abline(intercept = 0, slope = 1, col = 'red')+
+  ggtitle("Plot of observed y in test data vs predicted y") +
+  xlab("observed y in test data") + ylab("predicted y")
+
+```
+
+
+Comment
+
+We see from the plot that most of the points are far from the reference line 
+which indicates poor prediction. That is the predicted values are statistically
+different from the observed values in the test data.
+
+
+Computing the prediction MSE
+```{r}
+prediction_MSE2 <- mean((y_test_jawdata - perdict_kernel_reg$y)^2)
+prediction_MSE2
+```
+
+Comment
+
+The prediction MSE is 670.7431 which is large.
+
+
+
+## local (cubic) polynomial regression
+
+```{r, warning=FALSE}
+library(locpol)
+fit.local <- locpol(bone~age, data=train_jawdata, deg=3, kernel=EpaK,bw =4)
+```
+
+Comment
+
+- The kernel used here is EpaK
+
+- The bandwidth used is 4
+
+
+Apply the local cubic regression model to the test data.
+```{r, warning=FALSE}
+lp <- locpol(bone~age, data=train_jawdata, xeval=test_jawdata$age, deg=3,
+             kernel=EpaK,bw =7)
+lpp <- lp$lpFit
+perdict_locpol <- lpp$bone
+```
+
+Comment
+
+Here, I used bandwidth of 7 since I couldnt run with a bandwidth of 4.
+
+
+Plot the observed and predicted response values with reference line y = x
+```{r}
+library(ggplot2)
+ggplot( mapping = aes(x =y_test_jawdata , y = perdict_locpol)) +
+  geom_point()+
+  geom_abline(intercept = 0, slope = 1, col = 'red')+
+  ggtitle("Plot of observed y in test data vs predicted y") +
+  xlab("observed y in test data") + ylab("predicted y")
+```
+
+
+Comment
+
+We see from the plot that most of the points are far from the reference line 
+which indicates poor prediction. That is the predicted values are statistically
+different from the observed values in the test data.
+
+
+Computing Prediction MSE.
+```{r}
+y_test_jawdata <- test_jawdata$bone
+prediction_MSE3 <- mean((y_test_jawdata - perdict_locpol)^2)
+prediction_MSE3
+```
+
+
+Comment
+
+The prediction MSE is 283.0541 which is relatively large.
+
+
+# Regression/smoothing splines
+
+
+## Regression splines(Natural cubic splines)
+
+```{r}
+library(splines)
+#ns(train_jawdata$age, df = 5)
+natural_cubspl <- lm(bone ~ ns(age, df = 5), data = train_jawdata)
+```
+
+
+Plot the resultant curve.
+```{r}
+library(ggplot2)
+ggplot(data = train_jawdata, mapping = aes(x = age, y = bone)) +
+  geom_point()+
+  geom_line(aes(x=age, y=natural_cubspl$fitted.values), col = 'red') +
+  ggtitle("fitted curve from natural cubic spline model on the scatterplot") +
+  xlab("age in deer") + ylab("jaw bone length")
+```
+
+
+Comment
+
+The curve does not fit the data very well. Most points are not near the curve.
+
+
+Applying the fitted model to predict the test data.
+```{r}
+y_hatt <- predict(natural_cubspl, newdata = test_jawdata)
+```
+
+
+Plot the observed and predicted response values with reference line y=x.
+```{r}
+library(ggplot2)
+ggplot( mapping = aes(x =test_jawdata$bone , y = y_hatt)) +
+  geom_point()+
+  geom_abline(slope = 1, intercept = 0, col = 'red')+
+  ggtitle("Plot of observed y in test data vs predicted y") +
+  xlab("observed y in test data") + ylab("predicted y")
+```
+
+
+Comment
+
+We see from the plot that most of the points are far from the reference line
+which indicates poor prediction. That is the predicted values are statistically
+different from the observed values in the test data.
+
+
+Computing the prediction MSE
+```{r}
+prediction_MSE4 <- mean((test_jawdata$bone - y_hatt)^2)
+prediction_MSE4
+```
+
+Comment
+
+The prediction MSE is 200.7106 which relatively large
+
+
+## Smoothing splines
+```{r}
+library(splines)
+smooth_spline <- smooth.spline(train_jawdata$age, train_jawdata$bone)
+smooth_spline
+```
+
+
+Comment
+
+The generalized cross-validation (GCV) was used for the smoothing 
+parameter estimation. We obtained GCV of 3892.639 and an Equivalent Degrees 
+of Freedom (Df) of 5.508976.
+
+
+
+Add the resultant curve to the scatterplot.
+```{r}
+library(ggplot2)
+ggplot(data = train_jawdata, mapping = aes(x = age, y = bone)) +
+  geom_point()+
+  geom_line(aes(x=age, y=fitted(smooth_spline)), col = 'red') +
+  ggtitle("fitted curve from smoothing spline model on the scatterplot") +
+  xlab("age in deer") + ylab("jaw bone length")
+```
+
+
+Comment
+
+The curve does not fit the data very well. Most points are not near the curve.
+
+
+Apply the fitted model to the test data.
+```{r}
+y_hat_sp <- predict(smooth_spline, test_jawdata$age)
+```
+
+
+Plot the observed and predicted response values
+```{r}
+library(ggplot2)
+ggplot( mapping = aes(x =test_jawdata$bone , y = y_hat_sp$y)) +
+  geom_point()+
+  geom_abline(slope = 1, intercept = 0, col = 'red')+
+  ggtitle("Plot of observed y in test data vs predicted y") +
+  xlab("observed y in test data") + ylab("predicted y")
+
+```
+
+
+Comment
+
+From the bottom to the middle part of the reference line we see that the points 
+are not near the line. In particular the predicted values are statistically 
+different from the observed values in the test data.
+
+
+Compute the Prediction MSE
+```{r}
+prediction_MSE5 <- mean((test_jawdata$bone - y_hat_sp$y)^2)
+prediction_MSE5
+```
+
+
+Comment
+
+The prediction MSE is 177.413 which is relatively large.
+
+
+
+# Tabulate all the prediction MSE measures
+
+
+```{r}
+measure <- c(prediction_MSE, prediction_MSE1, 
+             prediction_MSE2,prediction_MSE3,
+             prediction_MSE4,prediction_MSE5)
+method_measure <- data.frame("Methods"= c("Asymptotic exponential model",
+                              "KNN regression","Kernel regression",
+                              "Local cubic polynomial","Natural cubic spline",
+                              "Smoothing Splines"), "Prediction_MSE"= measure)
+knitr::kable(method_measure, align = "lc", 
+             caption = "A table of all the prediction MSE measures.")
+```
+
+From the output of the prediction MSE for various methods, we see that KNN regression has the smallest  prediction MSE. Hence, KNN regression gives the favorable result. 
