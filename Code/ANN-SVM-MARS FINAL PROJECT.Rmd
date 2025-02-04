@@ -1,0 +1,519 @@
+---
+output: 
+  pdf_document:
+    keep_tex: true
+    fig_caption: true
+    latex_engine: pdflatex
+    number_sections: true
+    toc: true
+    toc_depth: 4
+title: "Project VII: ANN and SVM"
+author: 
+- Appiah Prince^[pappiah@miners.utep.edu]
+- University of Texas at El Paso (UTEP) 
+datae: "`r format(Sys.time(), '%B %d, %Y')`"
+geometry: margin=1in
+fontsize: 12pt
+spacing: single
+header-includes:
+- \usepackage{amsmath}
+- \usepackage{amssymb}
+- \usepackage{amsfonts}
+- \usepackage{amsthm}
+- \usepackage{fancyhdr}
+- \pagestyle{fancy}
+- \fancyhf{}
+- \rhead{STAT 5494-- Statistical Machine Learning}
+- \lhead{FINAL PROJECT}
+- \cfoot{\thepage}
+- \usepackage{algorithm}
+- \usepackage[noend]{algpseudocode}
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+# Project Description
+We consider the HCV data0 available at UCI machine learning repository:
+https://archive.ics.uci.edu/ml/data0sets/HCV+data0
+Excluding the first column, this 615x13 data0 set contains laboratory values of blood donors and Hepatitis C patients and demographic values like age. The target attribute for classification is Category(blood donors vs. Hepatitis C) (including its progress)('just' Hepatitis C, Fibrosis, Cirrhosis). The main goal of this project is to make medical diagnosis of Hepatitis C based on the results of lab blood work.
+
+Libraries
+```{r}
+library(tidyverse)
+library(questionr)
+library(reshape)
+library(ggcorrplot)
+library(hrbrthemes)
+library(ggthemes)
+library(hexbin)
+library(hexbin)
+library(glmnet)
+library(e1071)
+library(caret)
+library(pROC)
+library(earth)
+library(vip)
+library(neuralnet)
+library(kernlab)
+library(pander)
+library(ROCR)
+```
+
+# data0 Preparation 
+
+## Read in the data0
+```{r}
+# Skip first column
+dat <- read.csv("hcvdat0.csv", header=TRUE, colClasses=c("NULL", rep(NA, 13)))
+dim(dat); head(dat); anyNA(dat)
+str(dat)
+```
+
+
+## Modify the target variable Category 
+Modify the target variable Category into binary so that Category = 0 if it falls into either "0=Blood Donor" or "0s=suspect Blood Donor" and 1 if it falls into any other category except being missing, in which case we keep it as is.
+
+```{r}
+# Modify the target variable
+dat$Category[dat$Category=="0=Blood Donor"|
+               dat$Category=="0s=suspect Blood Donor"] <- 0
+dat$Category[dat$Category=="1=Hepatitis"|dat$Category=="2=Fibrosis"|
+               dat$Category=="3=Cirrhosis"] <- 1
+```
+
+
+## Frequency distribution of Category and checking missing values.
+```{r}
+#frequency distribution of Category
+table(dat$Category)
+n <- dim(dat)[1]
+table(dat$Category)/n*100
+
+# Check if there are missing values in the target variable
+anyNA(dat$Category)
+```
+
+
+## Inspecting for missing values in the predictors
+```{r}
+library(questionr)
+#checking the total number of missing values in the predictors
+sum(is.na(dat[,-1]))
+# Obtaining the percentage distribution of the missing values in the predictors
+freq.na(dat[,-1])
+```
+
+Imputation of the missing values in the predictors
+```{r, warning=FALSE}
+#Missing  value imputation
+set.seed(123)
+suppressPackageStartupMessages(library(mice)) 
+data_imputed <- mice(dat[,-c(1)], printFlag = F)
+data <- complete(data_imputed, 1) 
+data1 <- as.data.frame(data) 
+data <- cbind("Category"=dat$Category, data1)
+rm(data_imputed)
+# Checking data0 after imputation
+anyNA(data)
+```
+
+
+## Model Matrix
+Use model.matrix() to change the data0 matrix into numeric. Dummy variables will be automatically created for each categorical predictor.
+```{r}
+Model_matrix <- model.matrix(Category~.,data=data)
+head(Model_matrix)
+```
+
+
+
+# Exploratory dataa0 Analysis
+
+## View the range and variations of the predictors
+```{r}
+library(gridExtra)
+library(ggplot2)
+
+
+b1 <- ggplot() + 
+  geom_boxplot(aes(y = data$Age)) + 
+  scale_x_discrete( ) +
+  labs(title = "Age of donor or patient",
+       y = "Age")
+
+b2 <- ggplot() + 
+  geom_boxplot(aes(y = data$ALB)) + 
+  scale_x_discrete( ) +
+  labs(title = "Value of Albumin(ALB)",
+       y = "ALB")
+
+b3 <- ggplot() + 
+  geom_boxplot(aes(y = data$ALP)) + 
+  scale_x_discrete( ) +
+  labs(title = "Value of alkaline phosphatase(ALP)",
+       y = "ALP")
+
+b4 <- ggplot() + 
+  geom_boxplot(aes(y = data$ALT)) + 
+  scale_x_discrete( ) +
+  labs(title = "Value of Alanine Aminotransferase(ALT)",
+       y = "ALT")
+grid.arrange(b1, b2, b3, b4, nrow=2)
+```
+
+
+
+```{r}
+b5 <- ggplot() +
+  geom_boxplot(aes(y = data$AST)) +
+  scale_x_discrete( ) +
+  labs(title = "Value of Aspartate Aminotransferase(AST)",
+       y = "AST")
+
+b6 <- ggplot() + 
+  geom_boxplot(aes(y = data$BIL)) + 
+  scale_x_discrete( ) +
+  labs(title = "Value of Bilirubin(BIL)",
+       y = "BIL")
+
+
+b7 <- ggplot() + 
+  geom_boxplot(aes(y = data$CHE)) + 
+  scale_x_discrete( ) +
+  labs(title = "Value of Choline(CHE)",
+       y = "CHE")
+
+b8 <- ggplot() + 
+  geom_boxplot(aes(y = data$CHOL)) + 
+  scale_x_discrete( ) +
+  labs(title = "Value of Cholesterol(CHOL)",
+       y = "CHOL")
+grid.arrange(b5, b6, b7, b8, nrow=2)
+```
+
+
+
+```{r}
+b9 <- ggplot() +
+  geom_boxplot(aes(y = data$CREA)) +
+  scale_x_discrete( ) +
+  labs(title = "Value of Creatinine Blood test(CREA)",
+       y = "CREA")
+
+b10 <- ggplot() +
+  geom_boxplot(aes(y = data$GGT)) +
+  scale_x_discrete( ) +
+  labs(title = "Value of Y-glutamyl-transferase(GGT)",
+       y = "GGT")
+
+b11 <- ggplot() +
+  geom_boxplot(aes(y = data$PROT)) +
+  scale_x_discrete( ) +
+  labs(title = "Value of total protein test(PROT)",
+       y = "PROT")
+grid.arrange(b9, b10, b11,nrow=2)
+```
+
+
+
+## Association between the target and predictors
+
+Proportion of target with respect to predictors 
+```{r}
+ct1 <- ggplot(data, aes(x =Category, y = Age, fill = Category)) +
+  geom_boxplot()
+
+ct2 <- ggplot(data, aes(x =Category, y = ALB, fill = Category)) +
+  geom_boxplot()
+
+ct3 <- ggplot(data, aes(x =Category, y = ALP, fill = Category)) +
+  geom_boxplot()
+
+ct4 <- ggplot(data, aes(x =Category, y = ALT, fill = Category)) +
+  geom_boxplot()
+
+ct5 <- ggplot(data, aes(x =Category, y = AST, fill = Category)) +
+  geom_boxplot()
+
+grid.arrange(ct1,ct2,ct3,ct4,ct5,nrow = 3)
+```
+
+
+```{r}
+ct6 <- ggplot(data, aes(x =Category, y = BIL, fill = Category)) +
+  geom_boxplot()
+
+ct7 <- ggplot(data, aes(x =Category, y = CHE, fill = Category)) +
+  geom_boxplot()
+
+ct8 <- ggplot(data, aes(x =Category, y = CHOL, fill = Category)) +
+  geom_boxplot()
+
+ct9 <- ggplot(data, aes(x =Category, y = CREA, fill = Category)) +
+  geom_boxplot()
+
+ct10 <- ggplot(data, aes(x =Category, y = GGT, fill = Category)) +
+  geom_boxplot()
+
+ct11 <- ggplot(data, aes(x =Category, y = PROT, fill = Category)) +
+  geom_boxplot()
+grid.arrange(ct6,ct7,ct8,ct9,ct10,ct11,nrow = 3)
+```
+
+
+
+Association of the target variable and the categorical predictor variable sex
+```{r}
+library(ggplot2)
+tab <- table(data$Sex, data$Category)
+df <- as.data.frame(tab)
+colnames(df) <- c("sex", "category", "Frequency")
+ggplot(df, aes(x = sex, y = Frequency, fill = category)) +
+  geom_bar(position = "dodge", stat = 'identity')
+```
+
+Computing and Visualizing correlation matrix among the variables
+```{r}
+# Correlation matrix
+library(GoodmanKruskal)
+data0 <- GKtauDataframe(data)
+data0
+```
+
+```{r}
+# Visualization of the correlation matrix
+plot(data0, corColors = "magenta")
+```
+
+
+
+
+# Outlier Detection
+```{r}
+# Convert Model Matrix to dataaframe  
+# Category <- data$Category
+# data <- data.frame(mod_mat[,-1])
+# data <- data.frame(Category,data)
+
+# Partition data0set all 0(healthy blood donors) to train_hbd and 
+# all 1(Hepatitis C patient) to test_hcp 
+
+#table(data0$Category==0)[2] # 540 observations for healthy blood donors
+df <- data.frame(Model_matrix[,-1])
+Category <- data$Category
+new_data <- cbind(Category,df)
+
+train_set_hbd <- new_data[new_data$Category==0,]
+test_set_hcp <- new_data[new_data$Category==1,]
+
+library("e1071")
+x <- train_set_hbd[,-1]
+p <- NCOL(x)
+fit.OneClassSVM <- svm(x, y=NULL, type="one-classification", nu=0.02, 
+    kernel="radial", gamma=1/p)  
+summary(fit.OneClassSVM)
+```
+
+```{r}
+# FALSE---HPC(outliers) TRUE -- healthy blood donor
+# Make prediction on the test_hcp
+pred <- predict(fit.OneClassSVM, test_set_hcp[,-1])
+tab <- table(pred)
+tab
+```
+
+
+```{r}
+# Top 10 outliers
+outliers <- order(fit.OneClassSVM$decision.values, decreasing=T)[1:10]
+outliers
+```
+
+```{r}
+# Confusion Matrix 
+# confTest <- table(Predicted=pred,Reference=test_set_hcp$Category)
+# fourfoldplot(confTest, main = "Confusion Matrix")
+```
+
+
+# Data Partition
+
+```{r}
+set.seed(125)
+V <- 10
+n <- NROW(data); n0 <- sum(data$Category==0); n1 <- n-n0;
+id.fold <- 1:n
+id.fold[data$Category==0] <- sample(x=1:V, size=n0, replace=TRUE)
+id.fold[data$Category==1] <- sample(x=1:V, size=n1, replace=TRUE)
+dim_train <- c()
+dim_test <- c()
+
+for (v in 1:V) {
+train.v <- data[id.fold!=v, ];
+test.v <- data[id.fold==v, ];
+dim_train <- c(dim_train, dim(train.v))
+dim_test <- c(dim_test, dim(test.v))
+}
+
+# Dimensions for the train and test dataa for each v
+dim_train
+dim_test
+```
+
+
+# Predictive Modelling
+
+## Logistic Regression
+
+
+
+
+```{r}
+# library(ncvreg)
+# # V <- 10
+# # n <- NROW(dataa)
+# # n0 <- sum(dataa$Category==0)
+# # n1 <- n-n0
+# # id.fold <- 1:n
+# # id.fold[dataa$Category==0] <- sample(x=1:V, size=n0, replace=TRUE)
+# # id.fold[dataa$Category==1] <- sample(x=1:V, size=n1, replace=TRUE)
+# lambda_min <- c()
+# 
+# for (v in 1:V) {
+#   train.v <- dataa[id.fold!=v, ]
+#   yobs <- train.v$Category
+#   formula1 <- Category~.
+#   XL <- model.matrix(as.formula(formula1), dataa = train.v)
+#   cvfit.lasso <- cv.ncvreg(X=XL, y=yobs, nfolds = 5, family="binomial",
+#                            penalty="lasso",lambda.min=.0001, nlambda=10,
+#                            eps=.01, max.iter=1000)
+#   
+#   lambda_min <- cvfit.lasso$lambda
+#   best_lambda <- min(lambda_min) # best tuning parameter which corresponds to v=10
+# }
+
+```
+
+
+```{r, results=FALSE, warning=FALSE}
+# Using LASSO
+library(glmnet)
+library(verification)
+set.seed(125)
+V <- 10
+n <- NROW(data); n0 <- sum(data$Category==0); n1 <- n-n0;
+
+missclass.rate = c()
+error=c()
+
+for (v in 1:V) {
+  error=c(error, v)
+  missclass.rate=c(missclass.rate, v)
+}
+
+id.fold <- 1:n
+id.fold[data$Category==0] <- sample(x=1:V, size=n0, replace=TRUE)
+id.fold[data$Category==1] <- sample(x=1:V, size=n1, replace=TRUE)
+for (v in 1:V) {
+train.v <- data[id.fold!=v, ]; test.v <- data[id.fold==v, ];
+
+formula0 = Category~.
+X = model.matrix (as.formula(formula0), data = train.v)
+y = factor(train.v$Category)
+fit.lasso = glmnet(x=X, y=y, family="binomial", alpha=1, 
+                    lambda.min = 1e-4, nlambda = 100, standardize=T, thresh = 
+                      1e-07, maxit=1000)
+
+
+CV = cv.glmnet(x=X, y=y, family="binomial", alpha = 1,
+               lambda.min = 1e-4, nlambda = 200, standardize = T,
+               thresh = 1e-07, maxit=1000)
+#plot(CV)
+
+# SELECTING THE BEST TUNING PARAMETER
+best.lambda = CV$lambda.1se; #best.lambda  
+fit.best = glmnet(x=X, y=y, family="binomial", alpha = 1,
+                  lambda=best.lambda, standardize = T, 
+                  thresh = 1e-07, maxit=1000)
+
+formula0 = Category ~.
+fit.final = glm(formula0, family = "binomial", data = train.v)
+
+
+yobs = test.v$Category
+X.test = test.v[, -1]
+pred.glm = predict(fit.final, newdata = X.test, type="response")
+
+area = roc.area(yobs, pred.glm)$A
+error[v] = area
+print(paste("AUC for fold", v, ":", error[v]))
+
+pred.rate = ifelse(pred.glm > 0.5, 1, 0)
+miss.rate <- mean(yobs != pred.rate)
+missclass.rate[v] = miss.rate
+print(paste("Missclassification rate for fold", v,
+           ":",missclass.rate[v]))
+
+}
+print(paste("Average of AUC:", mean(error)))
+print(paste("Average of Miss:", mean(missclass.rate)))
+print(fit.best$beta)
+lasso.miss<-mean(missclass.rate)
+lasso.AUC<-mean(error)
+
+```
+
+
+
+```{r}
+set.seed(125)
+V <- 10
+n <- NROW(dataa); n0 <- sum(dataa$Category==0); n1 <- n-n0;
+id.fold <- 1:n
+id.fold[dataa$Category==0] <- sample(x=1:V, size=n0, replace=TRUE)
+id.fold[dataa$Category==1] <- sample(x=1:V, size=n1, replace=TRUE)
+train_new <- dataa[id.fold!=10, ]
+test_new <- dataa[id.fold==10, ]
+dim(train_new)
+
+yobs <- train_new$Category
+formula1 <- Category~.
+XL_new <- model.matrix(as.formula(formula1), dataa = train_new)
+cvfit_new.lasso <- cv.ncvreg(X=XL_new, y=yobs, nfolds = 5, family="binomial",
+                           penalty="lasso",lambda.min=.0001, nlambda=10,
+                           eps=.01, max.iter=1000)
+
+result.lasso <- cvfit_new.lasso$fit
+beta.hat <- as.vector(result.lasso$beta[-1, cvfit_new.lasso$min])
+cutoff <- 0
+terms <- colnames(XL_new)[abs(beta.hat) > cutoff]
+terms  
+```
+
+
+
+Fit Final Best Model and applying it on test dataa
+```{r}
+formula2 <- Category ~ ALP + AST + BIL + CHOL + CREA + GGT + PROT
+formula.lasso <- as.formula(formula2)
+fit.lasso <- glm(formula.lasso, dataa = train_new, family = "binomial")
+
+# Applying the final model on the test dataa
+yobs <- test_new$Category
+phat <- pred
+
+```
+
+
+```{r}
+Here, I used LASSO as penalty function for fitting the logistic regression.
+We found out that the average AUC is  0.967503644424891 and average 
+mis-classification rate is 0.0450670732872178.
+```
+
+
+
